@@ -2,8 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Spinning Wheel</title>
-
+<title>KPI Corrective Action Allocator</title>
 <style>
 body {
     font-family: Arial;
@@ -11,13 +10,17 @@ body {
     background: #1e1e2f;
     color: white;
 }
-
+.main-container {
+    display:flex;
+    justify-content:center;
+    align-items:flex-start;
+    gap:40px;
+    flex-wrap:wrap;
+}
 #wheelContainer {
     position: relative;
     width: 500px;
-    margin: 40px auto;
 }
-
 #pointer {
     position: absolute;
     top: -10px;
@@ -25,12 +28,18 @@ body {
     transform: translateX(-50%);
     font-size: 40px;
 }
-
 canvas {
     background: white;
     border-radius: 50%;
+    box-shadow: 0 0 25px gold;
 }
-
+#legend {
+    background:#2a2a3d;
+    padding:20px;
+    border-radius:10px;
+    min-width:260px;
+    text-align:left;
+}
 button {
     margin-top: 20px;
     padding: 12px 25px;
@@ -40,135 +49,153 @@ button {
     border-radius: 8px;
     cursor: pointer;
 }
+.confetti {
+    position: fixed;
+    width: 8px;
+    height: 8px;
+    top: -10px;
+    animation: fall 3s linear forwards;
+}
+@keyframes fall {
+    to { transform: translateY(100vh) rotate(720deg); opacity: 0; }
+}
 </style>
 </head>
-
 <body>
 
-<h1>🎡 Spinning Wheel</h1>
-
-<div id="wheelContainer">
-    <div id="pointer">▼</div>
-    <canvas id="wheel" width="500" height="500"></canvas>
+<h1>🎡 KPI Corrective Action Allocator</h1>
+<div class="main-container">
+    <div id="wheelContainer">
+        <div id="pointer">▼</div>
+        <canvas id="wheel" width="500" height="500"></canvas>
+        <button id="spinBtn">SPIN</button>
+    </div>
+    <div id="legend">
+        <h3>🎯 Possible Assigned Outcomes</h3>
+        <div id="legendList"></div>
+    </div>
 </div>
 
-<button id="spinBtn">SPIN</button>
-
 <script>
-
 const options = [
-{ title: "Doctor Letter", subtitle: "Safe to Be Left Unsupervised" },
-{ title: "Acting IT Support", subtitle: "All printers, WiFi & Excel now yours" },
-{ title: "Meeting Minutes", subtitle: "All meetings, indefinite" },
-{ title: "KPI Training", subtitle: "6 Months, 06:00 start" },
-{ title: "Reply-All Revoked", subtitle: "1 Month across all platforms" },
-{ title: "14th & 15th Cheques", subtitle: "Approved... in theory" }
+{ title: "Immediate KPI Training", subtitle: "For 6 Months, Starts 06:00 Saturday 4 April 2026", weight: 3 },
+{ title: "Provide Doctor’s Letter", subtitle: "Stating you are Safe to be left unsupervised", weight: 1 },
+{ title: "Reply-All Revoked", subtitle: "For 6 Months across all platforms", weight: 2 },
+{ title: "Acting Company IT Support", subtitle: "All printers, WiFi & Excel issues now yours to resolve", weight: 1 },
+{ title: "Meeting Minute Taker", subtitle: "All meetings, indefinitely", weight: 2 },
+{ title: "Follow-Up Specialist", subtitle: "You will chase every outstanding item until closure", weight: 2 }
 ];
-
 const colors = ["#f94144","#f3722c","#f9c74f","#90be6d","#43aa8b","#577590"];
-
 const canvas = document.getElementById("wheel");
 const ctx = canvas.getContext("2d");
-
 let startAngle = 0;
-const arc = Math.PI * 2 / options.length;
+const arc = Math.PI*2 / options.length;
 
-function drawWheel() {
-    ctx.clearRect(0, 0, 500, 500);
+/* AUDIO */
+const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+function playTick(){const osc=audioCtx.createOscillator();const gain=audioCtx.createGain();osc.type="square";osc.frequency.value=800;gain.gain.setValueAtTime(0.1,audioCtx.currentTime);gain.gain.exponentialRampToValueAtTime(0.001,audioCtx.currentTime+0.03);osc.connect(gain);gain.connect(audioCtx.destination);osc.start();osc.stop(audioCtx.currentTime+0.03);}
+function startTicking(duration){let start=performance.now();function loop(){let progress=(performance.now()-start)/duration;if(progress>=1)return;playTick();let delay=20+progress*250;setTimeout(loop,delay);}loop();}
+function playWinSound(){const osc=audioCtx.createOscillator();const gain=audioCtx.createGain();osc.type="sine";osc.frequency.setValueAtTime(400,audioCtx.currentTime);osc.frequency.linearRampToValueAtTime(900,audioCtx.currentTime+0.5);gain.gain.setValueAtTime(0.3,audioCtx.currentTime);gain.gain.exponentialRampToValueAtTime(0.001,audioCtx.currentTime+0.5);osc.connect(gain);gain.connect(audioCtx.destination);osc.start();osc.stop(audioCtx.currentTime+0.5);}
 
-    for (let i = 0; i < options.length; i++) {
+/* WEIGHTED RANDOM */
+function getWeightedIndex(){let total=options.reduce((sum,o)=>sum+o.weight,0);let rand=Math.random()*total;for(let i=0;i<options.length;i++){rand-=options[i].weight;if(rand<=0)return i;}return 0;}
 
-        let angle = startAngle + i * arc;
+/* TEXT WRAP */
+function wrapText(text,x,y,maxWidth,lineHeight){let words=text.split(" ");let line="";for(let n=0;n<words.length;n++){let test=line+words[n]+" ";let width=ctx.measureText(test).width;if(width>maxWidth && n>0){ctx.fillText(line,x,y);line=words[n]+" ";y+=lineHeight;}else{line=test;}}ctx.fillText(line,x,y);}
 
-        // slice
-        ctx.beginPath();
-        ctx.fillStyle = colors[i];
-        ctx.moveTo(250, 250);
-        ctx.arc(250, 250, 250, angle, angle + arc);
-        ctx.fill();
+/* DRAW WHEEL */
+function drawWheel(){ctx.clearRect(0,0,500,500);for(let i=0;i<options.length;i++){let angle=startAngle+i*arc;ctx.beginPath();ctx.fillStyle=colors[i];ctx.moveTo(250,250);ctx.arc(250,250,250,angle,angle+arc);ctx.fill();ctx.save();ctx.translate(250,250);ctx.rotate(angle+arc/2);ctx.fillStyle="white";ctx.textAlign="right";ctx.font="bold 14px Arial";wrapText(options[i].title,210,-15,160,16);ctx.font="12px Arial";wrapText(options[i].subtitle,210,15,160,14);ctx.restore();}}
 
-        ctx.save();
-        ctx.translate(250, 250);
-        ctx.rotate(angle + arc / 2);
+/* DRAW LEGEND */
+function drawLegend(){const legend=document.getElementById("legendList");legend.innerHTML="";options.forEach((item,i)=>{let div=document.createElement("div");div.style.marginBottom="10px";div.style.padding="8px";div.style.borderLeft="10px solid "+colors[i];div.style.background="#1e1e2f";div.style.borderRadius="5px";div.innerHTML=`<strong>${item.title}</strong><br><small>${item.subtitle}</small>`;legend.appendChild(div);});}
 
-        ctx.fillStyle = "white";
-        ctx.textAlign = "center";
+/* SPIN */
+let spinning=false;
+function spinWheel(){
+    if(spinning)return;
+    spinning=true;
+    audioCtx.resume();
+    startTicking(5000);
+    const selectedIndex=getWeightedIndex();
+    const degreesPerSection=360/options.length;
+    // Target angle: add multiple rotations + land in middle of prize
+    const rotations=6;
+    const targetAngle=rotations*360 + (selectedIndex*degreesPerSection + degreesPerSection/2);
+    const startDeg=(startAngle*180/Math.PI)%360;
+    const endDeg=startDeg + targetAngle;
+    const duration=5000;
+    const startTime=performance.now();
 
-        // TITLE
-        ctx.font = "bold 16px Arial";
-        wrapText(options[i].title, 140, -10, 130, 18);
-
-        // SUBTITLE
-        ctx.font = "12px Arial";
-        wrapText(options[i].subtitle, 140, 25, 130, 14);
-
-        ctx.restore();
-    }
-}
-
-function wrapText(text, x, y, maxWidth, lineHeight) {
-    let words = text.split(" ");
-    let line = "";
-
-    for (let n = 0; n < words.length; n++) {
-        let testLine = line + words[n] + " ";
-        let width = ctx.measureText(testLine).width;
-
-        if (width > maxWidth && n > 0) {
-            ctx.fillText(line, x, y);
-            line = words[n] + " ";
-            y += lineHeight;
-        } else {
-            line = testLine;
-        }
-    }
-    ctx.fillText(line, x, y);
-}
-
-function spinWheel() {
-
-    let spinTime = 0;
-    let spinTimeTotal = Math.random() * 3000 + 4000;
-    let spinAngleStart = Math.random() * 10 + 10;
-
-    function rotate() {
-
-        spinTime += 30;
-
-        if (spinTime >= spinTimeTotal) {
-            stopRotate();
-            return;
-        }
-
-        let spinAngle = spinAngleStart * (1 - spinTime / spinTimeTotal);
-        startAngle += spinAngle * Math.PI / 180;
-
+    function animate(time){
+        let progress=(time-startTime)/duration;
+        if(progress>1)progress=1;
+        let ease=1-Math.pow(1-progress,3); // ease-out cubic
+        let current=startDeg + (endDeg-startDeg)*ease;
+        startAngle=(current*Math.PI/180)% (2*Math.PI);
         drawWheel();
-        requestAnimationFrame(rotate);
+        if(progress<1){
+            requestAnimationFrame(animate);
+        } else {
+            showResult(selectedIndex);
+            spinning=false;
+        }
     }
-
-    rotate();
+    requestAnimationFrame(animate);
 }
 
-function stopRotate() {
-    let degrees = startAngle * 180 / Math.PI + 90;
-    let arcd = arc * 180 / Math.PI;
-    let index = Math.floor((360 - degrees % 360) / arcd);
-
-    let result = options[index];
-
-    document.getElementById("resultTitle").innerText = result.title;
-    document.getElementById("resultSubtitle").innerText = result.subtitle;
-
-    document.getElementById("popup").style.display = "flex";
+/* SHOW RESULT */
+function showResult(index){
+    playWinSound();
+    launchConfetti();
+    const result=options[index];
+    document.getElementById("resultTitle").innerText=result.title;
+    document.getElementById("resultSubtitle").innerText=result.subtitle;
+    document.getElementById("popup").style.display="flex";
 }
 
-document.getElementById("spinBtn").addEventListener("click", spinWheel);
+/* CONFETTI */
+function launchConfetti(){
+    for(let i=0;i<80;i++){
+        let c=document.createElement("div");
+        c.className="confetti";
+        c.style.left=Math.random()*100+"vw";
+        c.style.background=colors[Math.floor(Math.random()*colors.length)];
+        document.body.appendChild(c);
+        setTimeout(()=>c.remove(),3000);
+    }
+}
 
+document.getElementById("spinBtn").addEventListener("click",spinWheel);
 drawWheel();
-
+drawLegend();
 </script>
+
+<!-- PRIZE POPUP -->
 <div id="popup" style="
+display:none;
+position:fixed;
+top:0; left:0;
+width:100%; height:100%;
+background:rgba(0,0,0,0.7);
+justify-content:center;
+align-items:center;
+">
+<div style="
+background:white;
+color:black;
+padding:30px;
+border-radius:12px;
+text-align:center;
+width:300px;
+">
+<h2 id="resultTitle"></h2>
+<p id="resultSubtitle"></p>
+<button onclick="closePopup()">OK</button>
+</div>
+</div>
+
+<!-- HR APRIL FOOL POPUP -->
+<div id="hrMessage" style="
     display:none;
     position:fixed;
     top:0; left:0;
@@ -177,20 +204,27 @@ drawWheel();
     justify-content:center;
     align-items:center;
 ">
-
     <div style="
         background:white;
         color:black;
         padding:30px;
         border-radius:12px;
         text-align:center;
-        width:300px;
+        width:350px;
     ">
-        <h2 id="resultTitle"></h2>
-        <p id="resultSubtitle"></p>
-        <button onclick="closePopup()">OK</button>
+        <h2>Message from Human Resources</h2>
+        <p>Stop messing around on company time you April Fool!! 😂</p>
+        <button onclick="closeHRMessage()">OK</button>
     </div>
-
 </div>
+
+<script>
+function closePopup(){
+    document.getElementById("popup").style.display="none";
+    setTimeout(()=>{document.getElementById("hrMessage").style.display="flex";},200);
+}
+function closeHRMessage(){ document.getElementById("hrMessage").style.display="none"; }
+</script>
+
 </body>
 </html>
